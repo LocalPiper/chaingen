@@ -1,0 +1,20 @@
+<chain> ::= <vector> <steps>
+<steps> ::= <step>
+          | <step> <steps>
+
+<step> ::= <binary-step>
+         | <mask-step>
+         | <func-step>
+
+<binary-step> ::= <binary-op> <vector>
+<binary-op> ::= "+"
+              | "-"
+              | "*"
+              | "/"
+
+<mask-step> ::= "&" <mask>
+<func-step> ::= "." <func>
+
+<vector> ::= "v"
+<mask> ::= "m"
+<func> ::= "f"
