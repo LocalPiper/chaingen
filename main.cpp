@@ -1,3 +1,4 @@
+#include <cstdio>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -8,60 +9,105 @@ static const std::vector<std::string> operators = {"+", "-", "*",
                                                    "/", "&", "."};
 static std::unordered_map<size_t, std::vector<std::pair<std::string, size_t>>>
     func_map;
-const size_t OP_SIZE = operators.size();
+static const size_t OP_SIZE = operators.size();
 size_t M;
 size_t N;
-size_t v_id = 0;
-size_t m_id = 0;
+
+static std::vector<std::string> v_str;
+static std::vector<std::string> m_str;
 
 using Chain = std::vector<std::string>;
 
-inline std::string make_vector(const size_t id, const size_t len) {
-  // vector id + vector len
-  return "<v_" + std::to_string(id) + ", " + std::to_string(len) + ">";
+static std::string out_buf;
+static constexpr size_t OUT_FLUSH_THRESHOLD = 1u << 20;
+static std::ostream *out_stream = nullptr;
+
+inline void flush_buf() {
+  if (!out_buf.empty()) {
+    out_stream->write(out_buf.data(),
+                      static_cast<std::streamsize>(out_buf.size()));
+    out_buf.clear();
+  }
 }
 
-inline std::string make_mask(const size_t id, const size_t len) {
-  // mask id + number of set bits (len of resulting vector)
-  return "<m_" + std::to_string(id) + ", " + std::to_string(len) + ">";
+inline void emit_chain(const Chain &chain) {
+  for (const auto &s : chain) {
+    out_buf += s;
+    out_buf += ' ';
+  }
+  out_buf += '\n';
+  if (out_buf.size() >= OUT_FLUSH_THRESHOLD)
+    flush_buf();
+}
+
+inline void precompute_strings() {
+  const size_t max_vid = N + 2;
+  const size_t max_mid = N + 2;
+  const size_t max_len = M;
+  const size_t stride = M + 1;
+
+  v_str.assign((max_vid + 1) * stride, std::string{});
+  m_str.assign((max_mid + 1) * stride, std::string{});
+
+  char buf[64];
+  for (size_t id = 1; id <= max_vid; ++id) {
+    for (size_t len = 1; len <= max_len; ++len) {
+      int n = std::snprintf(buf, sizeof buf, "<v_%zu, %zu>", id, len);
+      v_str[id * stride + len].assign(buf, n);
+    }
+  }
+  for (size_t id = 1; id <= max_mid; ++id) {
+    for (size_t len = 1; len <= max_len; ++len) {
+      int n = std::snprintf(buf, sizeof buf, "<m_%zu, %zu>", id, len);
+      m_str[id * stride + len].assign(buf, n);
+    }
+  }
 }
 
 inline std::string make_function(const std::string &name, const size_t in,
                                  const size_t out) {
-  // func name + input len + output len
-  return "<" + name + ", " + std::to_string(in) + ", " + std::to_string(out) +
-         ">";
+  std::string s;
+  s.reserve(name.size() + 24);
+  s += '<';
+  s += name;
+  s += ", ";
+  s += std::to_string(in);
+  s += ", ";
+  s += std::to_string(out);
+  s += '>';
+  return s;
 }
 
 inline void backtrack(Chain &chain, size_t current_vlen, size_t budget,
-                      std::vector<Chain> &chains) {
+                      size_t v_id, size_t m_id) {
   if (budget == 0) {
-    chains.push_back(chain);
+    emit_chain(chain);
     return;
   }
+
+  const size_t stride = M + 1;
 
   for (size_t i = 0; i < OP_SIZE; ++i) {
     chain.push_back(operators[i]);
     if (operators[i] == "&") {
       for (size_t mlen = 1; mlen <= current_vlen; ++mlen) {
-        chain.push_back(make_mask(m_id++, mlen));
-        backtrack(chain, mlen, budget - 1, chains);
+        chain.push_back(m_str[m_id * stride + mlen]);
+        backtrack(chain, mlen, budget - 1, v_id, m_id + 1);
         chain.pop_back();
-        --m_id;
       }
     } else if (operators[i] == ".") {
-      if (func_map.count(current_vlen)) {
-        for (const auto &[func_name, func_out] : func_map.at(current_vlen)) {
+      auto it = func_map.find(current_vlen);
+      if (it != func_map.end()) {
+        for (const auto &[func_name, func_out] : it->second) {
           chain.push_back(make_function(func_name, current_vlen, func_out));
-          backtrack(chain, func_out, budget - 1, chains);
+          backtrack(chain, func_out, budget - 1, v_id, m_id);
           chain.pop_back();
         }
       }
     } else {
-      chain.push_back(make_vector(v_id++, current_vlen));
-      backtrack(chain, current_vlen, budget - 1, chains);
+      chain.push_back(v_str[v_id * stride + current_vlen]);
+      backtrack(chain, current_vlen, budget - 1, v_id + 1, m_id);
       chain.pop_back();
-      --v_id;
     }
     chain.pop_back();
   }
@@ -101,31 +147,31 @@ int main(int argc, char **argv) {
   N = std::stoi(argv[2]);
   parse_functions(argv[3]);
 
-  std::vector<Chain> chains;
-  for (size_t vlen = 1; vlen <= M; ++vlen) {
-    v_id = 1;
-    m_id = 1;
-    Chain current_chain{make_vector(v_id++, vlen)};
-    backtrack(current_chain, vlen, N, chains);
-  }
+  precompute_strings();
 
   std::ofstream out_file;
-  std::ostream *out = &std::cout;
+  out_stream = &std::cout;
   if (argc >= 5) {
-    out_file.open(argv[4]);
+    out_file.open(argv[4], std::ios::binary);
     if (!out_file) {
       std::cerr << "Cannot open output file: " << argv[4] << "\n";
       return 1;
     }
-    out = &out_file;
+    out_stream = &out_file;
+  }
+  out_buf.reserve(OUT_FLUSH_THRESHOLD + 256);
+
+  Chain chain;
+  chain.reserve(N + 1);
+
+  for (size_t vlen = 1; vlen <= M; ++vlen) {
+    chain.clear();
+    chain.push_back(v_str[1 * (M + 1) + vlen]);
+    backtrack(chain, vlen, N, 2, 1);
   }
 
-  for (const Chain &chain : chains) {
-    for (const auto &s : chain) {
-      *out << s << " ";
-    }
-    *out << "\n";
-  }
-
+  flush_buf();
+  if (out_file.is_open())
+    out_file.flush();
   return 0;
 }
