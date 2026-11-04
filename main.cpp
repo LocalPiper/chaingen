@@ -89,10 +89,12 @@ inline void parse_functions(const std::string &filename) {
 
 int main(int argc, char **argv) {
   if (argc < 4) {
-    std::cerr << "Usage: /chaingen <M> <N> <file.txt>\n";
+    std::cerr << "Usage: /chaingen <M> <N> <file.txt> [<output.txt>]\n";
     std::cerr << " where M - max vector length, N - number of operators\n";
     std::cerr << " file.txt contains function signatures of form:\n";
-    std::cerr << " function_name: input_vlen -> output_vlen";
+    std::cerr << " function_name: input_vlen -> output_vlen.\n";
+    std::cerr
+        << " output.txt - where to write output (stdout is used if omitted).\n";
     return 1;
   }
   M = std::stoi(argv[1]);
@@ -107,11 +109,22 @@ int main(int argc, char **argv) {
     backtrack(current_chain, vlen, N, chains);
   }
 
+  std::ofstream out_file;
+  std::ostream *out = &std::cout;
+  if (argc >= 5) {
+    out_file.open(argv[4]);
+    if (!out_file) {
+      std::cerr << "Cannot open output file: " << argv[4] << "\n";
+      return 1;
+    }
+    out = &out_file;
+  }
+
   for (const Chain &chain : chains) {
     for (const auto &s : chain) {
-      std::cout << s << " ";
+      *out << s << " ";
     }
-    std::cout << "\n";
+    *out << "\n";
   }
 
   return 0;
